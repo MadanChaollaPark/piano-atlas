@@ -4,7 +4,7 @@ test('loads the public piano directory and filters results', async ({
   page,
   isMobile,
 }) => {
-  await page.goto('/')
+  await page.goto('/?variant=grid')
 
   await expect(page.getByRole('heading', { name: 'Public Pianos', exact: true })).toBeVisible()
   await expect(page.getByLabel('Search public pianos')).toBeVisible()
@@ -31,7 +31,7 @@ test('supports dark mode and the add piano flag action', async ({ page }) => {
 test('sorts nearest pianos after geolocation permission', async ({ page, context }) => {
   await context.grantPermissions(['geolocation'])
   await context.setGeolocation({ latitude: 37.5665, longitude: 126.978 })
-  await page.goto('/')
+  await page.goto('/?variant=grid')
 
   await page.getByRole('button', { name: /closest|near|rank|start|use my location/i }).first().click()
   await expect(page.getByText('Nearest to you')).toBeVisible()
@@ -41,7 +41,7 @@ test('sorts nearest pianos after geolocation permission', async ({ page, context
 
 test('uses bundled fallback data when the API fails', async ({ page }) => {
   await page.route('**/api/pianos', (route) => route.abort())
-  await page.goto('/')
+  await page.goto('/?variant=grid')
 
   await expect(page.getByText(/Failed|unavailable|Fallback data|API returned/i).first()).toBeVisible()
   await expect(page.locator('.piano-card').first()).toBeVisible()
@@ -50,7 +50,7 @@ test('uses bundled fallback data when the API fails', async ({ page }) => {
 test('mobile view can switch between list and map', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'mobile-only smoke check')
 
-  await page.goto('/')
+  await page.goto('/?variant=grid')
   await page.getByRole('button', { name: 'Map' }).click()
   await expect(page.locator('.map-pane.mobile-active')).toBeVisible()
 
@@ -60,4 +60,20 @@ test('mobile view can switch between list and map', async ({ page, isMobile }) =
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth)
   const innerWidth = await page.evaluate(() => window.innerWidth)
   expect(scrollWidth).toBeLessThanOrEqual(innerWidth)
+})
+
+test('opens the selected Version 5 locator by default', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/')
+
+  await expect(page.locator('.app.variant-locator')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Public piano map' })).toBeVisible()
+
+  if (isMobile) {
+    await expect(page.locator('.map-pane.mobile-active')).toBeVisible()
+  } else {
+    await expect(page.locator('.list-pane')).toBeVisible()
+  }
 })
