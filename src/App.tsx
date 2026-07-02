@@ -1037,6 +1037,11 @@ function readFiltersFromUrl(): Filters {
 
 function writeFiltersToUrl(filters: Filters) {
   const params = new URLSearchParams()
+  const currentVariant = new URLSearchParams(window.location.search).get('variant')
+
+  if (currentVariant && currentVariant in variants) {
+    params.set('variant', currentVariant)
+  }
 
   for (const [key, value] of Object.entries(filters)) {
     if (value && value !== 'all') {
