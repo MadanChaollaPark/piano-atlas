@@ -7,6 +7,7 @@ import {
   Marker,
   Popup,
   TileLayer,
+  ZoomControl,
   useMap,
 } from 'react-leaflet'
 import type { UserLocation } from '../lib/pianos'
@@ -119,6 +120,7 @@ export function PianoMap({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url={tileUrl}
       />
+      <ZoomControl position="bottomright" />
       <MapCamera pianos={pianos} selectedId={selectedId} userLocation={userLocation} />
 
       {userLocation && (
@@ -144,6 +146,7 @@ export function PianoMap({
           position={[piano.lat, piano.lng]}
           icon={piano.id === selectedId ? selectedMarkerIcon : markerIcon}
           title={`${piano.name}, ${statusLabel(piano.status)}`}
+          keyboard={false}
           zIndexOffset={piano.id === selectedId ? 500 : 0}
           eventHandlers={{ click: () => onSelect(piano.id) }}
         >
