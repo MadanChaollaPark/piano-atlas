@@ -54,4 +54,27 @@ describe('piano API client', () => {
     expect(response.meta.message).toContain('invalid piano response')
     expect(response.pianos).toHaveLength(seedPianos.length)
   })
+
+  it('rejects incomplete piano records before search can use them', async () => {
+    const { tags: _tags, ...incompletePiano } = seedPianos[0]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          pianos: [incompletePiano],
+          meta: {
+            source: 'api',
+            fetchedAt: '2026-07-10T00:00:00.000Z',
+            stale: false,
+            count: 1,
+          },
+        }),
+      ),
+    )
+
+    const response = await fetchPianos()
+
+    expect(response.meta.source).toBe('fallback')
+    expect(response.meta.message).toContain('invalid piano response')
+  })
 })
