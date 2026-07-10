@@ -69,6 +69,8 @@ export type PianoMeta = {
   stale: boolean
   count: number
   message?: string
+  attribution?: string
+  licenseUrl?: string
 }
 
 export type PianosResponse = {
