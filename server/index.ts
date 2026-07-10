@@ -34,6 +34,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const cacheDir = path.join(__dirname, 'cache')
 const pianoCachePath = path.join(cacheDir, 'pianos.json')
 const reportsPath = path.join(cacheDir, 'reports.json')
+const osmAttribution = '© OpenStreetMap contributors'
+const osmLicenseUrl = 'https://opendatacommons.org/licenses/odbl/1-0/'
 
 const app = express()
 const port = Number(process.env.PORT ?? 5174)
@@ -122,6 +124,8 @@ app.get('/api/pianos', refreshRateLimit, async (request, response) => {
     stale: cache ? isStale(cache.fetchedAt) : true,
     count: pianos.length,
     message: cache?.error,
+    attribution: osmAttribution,
+    licenseUrl: osmLicenseUrl,
   }
 
   if (parsed.data.refresh) {
@@ -133,6 +137,8 @@ app.get('/api/pianos', refreshRateLimit, async (request, response) => {
       stale: Boolean(cache.error),
       count: pianos.length,
       message: cache.error,
+      attribution: osmAttribution,
+      licenseUrl: osmLicenseUrl,
     }
   }
 
@@ -206,12 +212,7 @@ async function performOverpassRefresh(): Promise<CacheFile> {
   const endpoint =
     process.env.OVERPASS_ENDPOINT ?? 'https://overpass-api.de/api/interpreter'
   const query = `[out:json][timeout:45];
-(
-  nwr["amenity"="piano"];
-  nwr["musical_instrument"~"^(piano|digital_piano|upright_piano|grand_piano)$"];
-  nwr["musical_instrument:piano"="yes"];
-  nwr["piano"="yes"];
-);
+nwr["amenity"="piano"];
 out center meta qt;`
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 18000)
@@ -280,14 +281,14 @@ function normalizeOverpass(elements: OverpassElement[]) {
     }
 
     seen.add(id)
-    const amenityMatch = tags.amenity === 'piano'
     const city =
       tags['addr:city'] ??
       tags['is_in:city'] ??
-      tags['addr:suburb'] ??
       tags['addr:town'] ??
+      tags['addr:suburb'] ??
       'Unknown city'
-    const country = tags['addr:country'] ?? 'Unknown country'
+    const countryCode = tags['addr:country']?.toUpperCase()
+    const country = countryCode ? countryName(countryCode) : 'Unknown country'
     const access = normalizeAccess(tags.access)
     const instrument = tags.musical_instrument?.includes('digital')
       ? 'digital_piano'
@@ -296,10 +297,10 @@ function normalizeOverpass(elements: OverpassElement[]) {
     pianos.push({
       id,
       name: tags.name ?? tags.operator ?? 'Public piano',
-      venue: tags.location ?? tags.operator ?? tags['addr:full'] ?? city,
+      venue: tags.operator ?? tags['addr:full'] ?? city,
       city,
       country,
-      countryCode: tags['addr:country'] ?? 'UN',
+      countryCode: countryCode ?? 'UN',
       lat,
       lng,
       address: formatAddress(tags),
@@ -308,12 +309,12 @@ function normalizeOverpass(elements: OverpassElement[]) {
       accessNotes: tags.access ? `OSM access=${tags.access}` : undefined,
       status: access === 'limited' ? 'limited_access' : 'unknown',
       condition: 'unknown',
-      confidence: amenityMatch ? 'high' : 'low',
+      confidence: 'high',
       instrument,
       indoor: normalizeIndoor(tags),
       operator: tags.operator,
       openingHours: tags.opening_hours,
-      lastVerified: element.timestamp,
+      lastVerified: tags.check_date ?? tags['survey:date'],
       source: 'openstreetmap',
       sourceUrl: `https://www.openstreetmap.org/${element.type}/${element.id}`,
       osm: {
@@ -333,14 +334,27 @@ function normalizeOverpass(elements: OverpassElement[]) {
             'operator',
             'opening_hours',
             'location',
+            'check_date',
+            'survey:date',
           ].includes(key),
         )
         .map(([key, value]) => `${key}=${value}`),
-      notes: tags.description ?? tags.note,
+      notes: tags.description,
     })
   }
 
   return pianos
+}
+
+function countryName(countryCode: string) {
+  try {
+    return (
+      new Intl.DisplayNames(['en'], { type: 'region' }).of(countryCode) ??
+      countryCode
+    )
+  } catch {
+    return countryCode
+  }
 }
 
 function normalizeAccess(value?: string): Piano['access'] {
