@@ -1,6 +1,6 @@
 import compression from 'compression'
 import cors from 'cors'
-import express from 'express'
+import express, { type Request, type RequestHandler } from 'express'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +37,13 @@ const reportsPath = path.join(cacheDir, 'reports.json')
 
 const app = express()
 const port = Number(process.env.PORT ?? 5174)
+const refreshRateLimit = createRateLimiter({
+  limit: 3,
+  windowMs: 60_000,
+  shouldLimit: (request) => request.query.refresh === 'true',
+})
+const reportRateLimit = createRateLimiter({ limit: 10, windowMs: 60_000 })
+let inFlightOverpassRefresh: Promise<CacheFile> | null = null
 
 app.use(compression())
 app.use(cors())
@@ -100,7 +107,7 @@ app.get('/api/status', async (_request, response) => {
   })
 })
 
-app.get('/api/pianos', async (request, response) => {
+app.get('/api/pianos', refreshRateLimit, async (request, response) => {
   const parsed = querySchema.safeParse(request.query)
   if (!parsed.success) {
     response.status(400).json({ error: 'Invalid query parameters' })
@@ -155,25 +162,47 @@ app.get('/api/pianos/:id', async (request, response) => {
   response.json({ piano })
 })
 
-app.post('/api/reports', async (request, response) => {
-  const parsed = reportSchema.safeParse(request.body)
-  if (!parsed.success) {
-    response.status(400).json({ error: 'Invalid report' })
-    return
-  }
+app.post(
+  '/api/reports',
+  noStore,
+  reportRateLimit,
+  async (request, response) => {
+    const parsed = reportSchema.safeParse(request.body)
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid report' })
+      return
+    }
 
-  const report = sanitizeReport(parsed.data)
-  const existing = await readReports()
-  const id = `report:${Date.now().toString(36)}`
-  await writeReports([...existing, { id, createdAt: new Date().toISOString(), ...report }])
-  response.status(201).json({ ok: true, id })
-})
+    const report = sanitizeReport(parsed.data)
+    const existing = await readReports()
+    const id = `report:${Date.now().toString(36)}`
+    await writeReports([
+      ...existing,
+      { id, createdAt: new Date().toISOString(), ...report },
+    ])
+    response.status(201).json({ ok: true, id })
+  },
+)
 
 app.listen(port, '127.0.0.1', () => {
   console.log(`Piano Atlas API listening on http://127.0.0.1:${port}`)
 })
 
 async function refreshOverpass(): Promise<CacheFile> {
+  if (inFlightOverpassRefresh) {
+    return inFlightOverpassRefresh
+  }
+
+  inFlightOverpassRefresh = performOverpassRefresh()
+
+  try {
+    return await inFlightOverpassRefresh
+  } finally {
+    inFlightOverpassRefresh = null
+  }
+}
+
+async function performOverpassRefresh(): Promise<CacheFile> {
   const endpoint =
     process.env.OVERPASS_ENDPOINT ?? 'https://overpass-api.de/api/interpreter'
   const query = `[out:json][timeout:45];
@@ -434,4 +463,58 @@ function sanitizeReport(report: PianoReport): PianoReport {
       typeof value === 'string' ? value.replace(/[<>]/g, '').trim() : value,
     ]),
   ) as PianoReport
+}
+
+function noStore(
+  _request: Parameters<RequestHandler>[0],
+  response: Parameters<RequestHandler>[1],
+  next: Parameters<RequestHandler>[2],
+) {
+  response.setHeader('cache-control', 'no-store')
+  next()
+}
+
+function createRateLimiter({
+  limit,
+  windowMs,
+  shouldLimit = () => true,
+}: {
+  limit: number
+  windowMs: number
+  shouldLimit?: (request: Request) => boolean
+}): RequestHandler {
+  const clients = new Map<string, { count: number; resetAt: number }>()
+
+  return (request, response, next) => {
+    if (!shouldLimit(request)) {
+      next()
+      return
+    }
+
+    const now = Date.now()
+    const key = request.ip || request.socket.remoteAddress || 'local'
+    const current = clients.get(key)
+    const entry =
+      !current || current.resetAt <= now
+        ? { count: 0, resetAt: now + windowMs }
+        : current
+
+    entry.count += 1
+    clients.set(key, entry)
+
+    response.setHeader('x-ratelimit-limit', limit)
+    response.setHeader('x-ratelimit-remaining', Math.max(0, limit - entry.count))
+    response.setHeader('x-ratelimit-reset', Math.ceil(entry.resetAt / 1000))
+
+    if (entry.count > limit) {
+      response.setHeader(
+        'retry-after',
+        Math.max(1, Math.ceil((entry.resetAt - now) / 1000)),
+      )
+      response.status(429).json({ error: 'Too many requests' })
+      return
+    }
+
+    next()
+  }
 }
