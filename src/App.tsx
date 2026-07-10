@@ -546,6 +546,12 @@ function ReportDialog({
     previousFocus.current = document.activeElement as HTMLElement | null
     const priorOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    const backgroundRegions = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.skip-link, .atlas-header, .atlas-stage, .mobile-view-switch',
+      ),
+    )
+    backgroundRegions.forEach((region) => region.setAttribute('inert', ''))
 
     const focusable = () =>
       Array.from(
@@ -581,6 +587,7 @@ function ReportDialog({
       window.clearTimeout(focusTimer)
       window.removeEventListener('keydown', handleKeys)
       document.body.style.overflow = priorOverflow
+      backgroundRegions.forEach((region) => region.removeAttribute('inert'))
       previousFocus.current?.focus()
     }
   }, [onClose])
