@@ -176,6 +176,15 @@ test.describe('desktop atlas', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   })
 
+  test('preserves and opens a valid piano deep link', async ({ page }) => {
+    await page.goto('/?piano=test%3Agb%3Alondon%3Ast-pancras')
+
+    await expect(page).toHaveURL(/piano=test%3Agb%3Alondon%3Ast-pancras/)
+    await expect(
+      page.getByRole('complementary', { name: 'Selected piano' }),
+    ).toContainText('St Pancras station piano')
+  })
+
   test('opens the add and selected-piano report dialog states', async ({
     page,
   }) => {
