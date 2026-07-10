@@ -41,4 +41,17 @@ describe('piano API client', () => {
     expect(response.meta.stale).toBe(true)
     expect(response.pianos).toHaveLength(seedPianos.length)
   })
+
+  it('falls back when the backend response has the wrong shape', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ pianos: 'not-an-array' })),
+    )
+
+    const response = await fetchPianos()
+
+    expect(response.meta.source).toBe('fallback')
+    expect(response.meta.message).toContain('invalid piano response')
+    expect(response.pianos).toHaveLength(seedPianos.length)
+  })
 })
