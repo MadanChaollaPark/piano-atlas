@@ -19,7 +19,12 @@ export async function fetchPianos(refresh = false): Promise<PianosResponse> {
       throw new Error(`API returned ${response.status}`)
     }
 
-    return (await response.json()) as PianosResponse
+    const payload: unknown = await response.json()
+    if (!isPianosResponse(payload)) {
+      throw new Error('API returned an invalid piano response')
+    }
+
+    return payload
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'The local API is unavailable'
@@ -43,4 +48,25 @@ export async function sendReport(report: PianoReport) {
 
 export function pianoById(pianos: Piano[], id: string) {
   return pianos.find((piano) => piano.id === id)
+}
+
+function isPianosResponse(value: unknown): value is PianosResponse {
+  if (!value || typeof value !== 'object') return false
+
+  const response = value as Partial<PianosResponse>
+  if (!Array.isArray(response.pianos) || !response.meta) return false
+  if (
+    typeof response.meta.fetchedAt !== 'string' ||
+    typeof response.meta.count !== 'number' ||
+    typeof response.meta.stale !== 'boolean'
+  ) return false
+
+  return response.pianos.every(
+    (piano) =>
+      piano &&
+      typeof piano.id === 'string' &&
+      typeof piano.name === 'string' &&
+      Number.isFinite(piano.lat) &&
+      Number.isFinite(piano.lng),
+  )
 }
