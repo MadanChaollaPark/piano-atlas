@@ -4,6 +4,7 @@ import {
   defaultFilters,
   distanceKm,
   filterPianos,
+  mapsUrl,
   normalizeSearchText,
 } from './pianos'
 
@@ -41,5 +42,16 @@ describe('piano filtering', () => {
 
     expect(results[0].city).toBe('Seoul')
     expect(distanceKm(seoul, results[0])).toBeLessThan(8)
+  })
+
+  it('builds a coordinate-based directions URL', () => {
+    const url = new URL(mapsUrl(seedPianos[0]))
+
+    expect(url.pathname).toBe('/maps/dir/')
+    expect(url.searchParams.get('api')).toBe('1')
+    expect(url.searchParams.get('destination')).toBe(
+      `${seedPianos[0].lat},${seedPianos[0].lng}`,
+    )
+    expect(url.searchParams.has('query_place_id')).toBe(false)
   })
 })
