@@ -215,6 +215,5 @@ export function formatDistance(km?: number) {
 }
 
 export function mapsUrl(piano: Piano) {
-  const label = encodeURIComponent(`${piano.name}, ${piano.city}`)
-  return `https://www.google.com/maps/search/?api=1&query=${piano.lat},${piano.lng}&query_place_id=${label}`
+  return `https://www.google.com/maps/dir/?api=1&destination=${piano.lat},${piano.lng}`
 }
