@@ -53,7 +53,9 @@ function App() {
   const [pianos, setPianos] = useState<Piano[]>([])
   const [meta, setMeta] = useState<PianoMeta | null>(null)
   const [filters, setFilters] = useState<Filters>(readFiltersFromUrl)
-  const [selectedId, setSelectedId] = useState<string>()
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get('piano') ?? undefined,
+  )
   const [theme, setTheme] = useState<Theme>(readInitialTheme)
   const [mobileView, setMobileView] = useState<MobileView>('map')
   const [userLocation, setUserLocation] = useState<UserLocation>()
@@ -105,6 +107,22 @@ function App() {
   const activeFilterCount = Object.values(filters).filter(
     (value) => value !== '' && value !== 'all',
   ).length
+
+  useEffect(() => {
+    if (!loading && selectedId && !visiblePianos.some((piano) => piano.id === selectedId)) {
+      setSelectedId(undefined)
+    }
+  }, [loading, selectedId, visiblePianos])
+
+  useEffect(() => {
+    if (
+      !loading &&
+      filters.city !== 'all' &&
+      !cities.some(({ city }) => city === filters.city)
+    ) {
+      updateFilter('city', 'all')
+    }
+  }, [cities, filters.city, loading])
 
   function updateFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -173,9 +191,17 @@ function App() {
     ? 'Loading piano locations'
     : `${visiblePianos.length.toLocaleString()} piano${visiblePianos.length === 1 ? '' : 's'}`
 
+  function skipToResults(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault()
+    setMobileView('list')
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('#piano-results')?.focus()
+    })
+  }
+
   return (
     <div className="atlas-app">
-      <a className="skip-link" href="#piano-results">Skip to piano listings</a>
+      <a className="skip-link" href="#piano-results" onClick={skipToResults}>Skip to piano listings</a>
       <header className="atlas-header">
         <a className="atlas-brand" href="/" aria-label="Piano Atlas home">
           <span className="brand-keys" aria-hidden="true">
@@ -279,10 +305,11 @@ function App() {
             </p>
           </div>
 
-          <label className="search-control">
+          <div className="search-control">
             <Search size={19} aria-hidden="true" />
-            <span className="sr-only">Search public pianos</span>
+            <label className="sr-only" htmlFor="piano-search">Search public pianos</label>
             <input
+              id="piano-search"
               value={filters.query}
               placeholder="City, venue, or country"
               onChange={(event) => updateFilter('query', event.target.value)}
@@ -296,7 +323,7 @@ function App() {
                 <X size={16} />
               </button>
             )}
-          </label>
+          </div>
 
           <div className="primary-actions">
             <button className="primary-button" type="button" onClick={locateUser} disabled={locating}>
@@ -387,8 +414,8 @@ function App() {
             <span>
               {meta?.source === 'api' ? 'Live OpenStreetMap layer' : 'Curated fallback layer'}
             </span>
-            <a href="https://www.awwwards.com/sites/ayla-interactive-map" target="_blank" rel="noreferrer">
-              AYLA-inspired design <ExternalLink size={12} />
+            <a href="https://www.awwwards.com/sites/tavalo" target="_blank" rel="noreferrer">
+              Tavalo-inspired design <ExternalLink size={12} />
             </a>
           </footer>
         </aside>
@@ -640,16 +667,17 @@ function ReportDialog({
               <label><span>Country</span><input required value={country} onChange={(event) => setCountry(event.target.value)} /></label>
             </div>
           )}
-          <label>
-            <span>What changed?</span>
-            <select value={kind} onChange={(event) => setKind(event.target.value as PianoReport['kind'])}>
-              <option value="confirm_available">Still available</option>
-              <option value="missing">Missing</option>
-              <option value="damaged">Damaged</option>
-              <option value="access_changed">Access changed</option>
-              <option value="add_new">New piano</option>
-            </select>
-          </label>
+          {!isNew && (
+            <label>
+              <span>What changed?</span>
+              <select value={kind} onChange={(event) => setKind(event.target.value as PianoReport['kind'])}>
+                <option value="confirm_available">Still available</option>
+                <option value="missing">Missing</option>
+                <option value="damaged">Damaged</option>
+                <option value="access_changed">Access changed</option>
+              </select>
+            </label>
+          )}
           <label>
             <span>Details</span>
             <textarea
@@ -683,12 +711,21 @@ function readFiltersFromUrl(): Filters {
   return {
     ...defaultFilters,
     query: params.get('q') ?? '',
-    access: (params.get('access') as Filters['access']) ?? 'all',
-    confidence: (params.get('confidence') as Filters['confidence']) ?? 'all',
-    status: (params.get('status') as Filters['status']) ?? 'all',
-    source: (params.get('source') as Filters['source']) ?? 'all',
+    access: readFilterParam(params, 'access', ['all', 'public', 'permissive', 'customers', 'limited', 'unknown']),
+    confidence: readFilterParam(params, 'confidence', ['all', 'high', 'medium', 'low']),
+    status: readFilterParam(params, 'status', ['all', 'available', 'likely_available', 'unknown', 'limited_access', 'seasonal_closed', 'damaged_present', 'missing_reported', 'retired']),
+    source: readFilterParam(params, 'source', ['all', 'openstreetmap', 'curated_seed']),
     city: params.get('city') ?? 'all',
   }
+}
+
+function readFilterParam<T extends string>(
+  params: URLSearchParams,
+  key: string,
+  allowed: readonly T[],
+): T {
+  const value = params.get(key)
+  return value && allowed.includes(value as T) ? (value as T) : allowed[0]
 }
 
 function writeStateToUrl(filters: Filters, selectedId?: string) {
