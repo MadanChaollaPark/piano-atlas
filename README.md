@@ -1,59 +1,95 @@
-# Piano Atlas
+# Piano Atlas: Sol Edition
 
-React + TypeScript public-piano directory with a Node/Express API. The default
-experience is Version 5, the AYLA-inspired map-first locator.
+Sol is the standalone, map-first edition of Piano Atlas. It turns the original
+prototype collection into one focused public-piano finder while keeping the
+existing React, Leaflet, Express, and OpenStreetMap data boundary.
 
-## What is included
+The original five-prototype application remains preserved on `main`. Sol lives
+on the separate `sol-edition` branch and uses its own local ports, so it can run
+alongside the baseline without replacing it.
 
-- Searchable, filterable public-piano listing interface.
-- Desktop map/list split and mobile list/map toggle.
-- Dark mode with manual toggle and darkened map tiles.
-- Flag icon flow for reporting a piano or adding a new one.
-- OpenStreetMap/Overpass refresh path with JSON cache and seed fallback.
-- Visible OSM attribution and source/confidence labels.
-- Vitest unit tests, Playwright smoke tests, and production build.
+## Run locally
 
-## Data
-
-The backend treats OpenStreetMap as the only bulk-ingested source. The main tag is `amenity=piano`, with lower-confidence discovery support for related piano tags. Public-piano-specific websites were used as research references, but not scraped into this project.
-
-## Run
+Requires a current Node.js release with npm.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173/`. The default route opens the selected Version 5
-map locator.
+- Web app: <http://127.0.0.1:5186/>
+- API: <http://127.0.0.1:5187/>
+- API health check: <http://127.0.0.1:5187/api/health>
+- API status: <http://127.0.0.1:5187/api/status>
 
-To compare the five design prototypes at once:
+`npm run dev` starts both processes. To run them in separate terminals:
 
 ```bash
-npm run dev:variants
+npm run dev:api
+npm run dev:web
 ```
 
-- Version 1: `http://127.0.0.1:5181/`
-- Version 2: `http://127.0.0.1:5182/`
-- Version 3: `http://127.0.0.1:5183/`
-- Version 4: `http://127.0.0.1:5184/`
-- Version 5: `http://127.0.0.1:5185/`
+## What Sol includes
 
-## Prototype references
+- Full-height interactive map with synchronized piano listings and detail view.
+- Search by city, venue, or country, plus city, access, and availability filters.
+- Browser geolocation for nearest-first discovery.
+- Directions and source links for individual records.
+- Mobile map/list switcher and responsive desktop explorer panel.
+- Persisted light/dark theme, keyboard navigation, focus management, and a skip link.
+- OpenStreetMap/Overpass refresh with cached or curated fallback records.
+- Forms for adding a piano or reporting availability, access, damage, or removal.
+- URL-backed filters and selected-piano state for shareable views.
 
-- Version 1 copies the structure of On The Grid, recognized by Awwwards as Site of the Day.
-- Version 2 copies the calm travel-listing grammar of Welcome Beyond, cited by The Guardian in its best travel websites list.
-- Version 3 copies the map-first guide behavior of TasteAtlas, recognized by Awwwards with an Honorable Mention.
-- Version 4 copies the map/archive pattern of National Parks by Joe Lee, recognized by Awwwards with an Honorable Mention.
-- Version 5 copies the illustrated destination-map pattern of AYLA Interactive Map, recognized by Awwwards as a nominee.
+## Data scope
 
-## Verify
+Piano Atlas is a discovery aid, not a literally complete registry or a guarantee
+that a piano is present, playable, public, or available now. Bulk records come
+from OpenStreetMap tags such as `amenity=piano` and related instrument tags;
+coverage, names, access details, hours, and verification dates vary by place.
+The current API returns at most 1,000 records per request, and the curated fallback
+is intentionally a small resilience dataset. Check the linked source and venue
+conditions before making a trip.
+
+Submitted reports are saved for review. They do not automatically rewrite the
+public listing data.
+
+## Commands
 
 ```bash
 npm run typecheck
 npm test
+npm run lint
 npm run build
 npm run test:e2e
 ```
 
-The local API runs on `http://127.0.0.1:5174/`.
+`npm run preview` serves the built frontend on port `5186`. The Vite `/api`
+proxy is a development feature, so a production-style preview needs an external
+route for `/api` or it will use the bundled fallback data.
+
+## Design references
+
+Sol is an original implementation informed by three published references; it
+does not reuse their code or visual assets.
+
+- [Tavalo on Awwwards](https://www.awwwards.com/sites/tavalo): Awwwards records
+  an Honorable Mention dated April 6, 2023 and highlights its interactive map,
+  illustration, typography, and green/cream palette.
+- [Atlas Obscura at the Webby Awards](https://www.webbyawards.com/press/press-releases/22nd-annual-webby-award-winners-announced/):
+  Atlas Obscura received the 2018 Webby People's Voice Award for Travel websites;
+  its editorial discovery model informed the atlas framing.
+- [On the Grid at Communication Arts](https://www.commarts.com/webpicks/on-the-grid):
+  the Webpick documents a minimalist city guide that supports both map and list
+  browsing, reflected here in the synchronized explorer layout.
+
+See [docs/sol-reference.md](docs/sol-reference.md) for the detailed edition,
+data, design, and production notes.
+
+## Production note
+
+The Express service is currently a local backend: it binds to `127.0.0.1:5187`
+and stores cache/report JSON on local disk. Before deployment, move those files
+to durable storage, run refreshes as a managed job, add report moderation and
+abuse controls, and route same-origin `/api` traffic to the Node service. The
+static `dist` output does not include or deploy the API.
