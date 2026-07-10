@@ -82,6 +82,23 @@ const reportSchema = z.object({
   lng: z.number().min(-180).max(180).optional(),
   note: z.string().min(8).max(1200),
   contact: z.string().max(160).optional(),
+}).superRefine((report, context) => {
+  if (report.kind === 'add_new') {
+    if (!report.name || !report.city || !report.country) {
+      context.addIssue({
+        code: 'custom',
+        message: 'New piano reports require name, city, and country',
+      })
+    }
+    return
+  }
+
+  if (!report.pianoId) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Listing updates require a piano ID',
+    })
+  }
 })
 
 app.get('/api/health', (_request, response) => {
