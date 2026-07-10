@@ -1,39 +1,33 @@
 :root {
-  --page: #fbfbf8;
-  --paper: #ffffff;
+  --header-height: 72px;
+  --page: #f4f4ef;
+  --panel: #fffefa;
   --surface: #ffffff;
-  --field: #f7f7f1;
-  --city-band: #f1f4ef;
-  --map-bg: #d7e0d8;
-  --ink: #171717;
-  --brand-bg: #171717;
-  --brand-fg: #ffffff;
-  --active-bg: #171717;
-  --active-fg: #ffffff;
-  --text: #343a36;
-  --text-strong: #171717;
-  --muted: #545d55;
-  --line: #deded5;
-  --line-strong: #b9bbb0;
-  --accent: #b93a25;
+  --surface-raised: #ffffff;
+  --surface-subtle: #f2f3ed;
+  --surface-active: #edf4f0;
+  --map-bg: #d9e3dd;
+  --text: #31342f;
+  --text-strong: #171915;
+  --muted: #686d65;
+  --muted-strong: #4d534b;
+  --line: #dfe1d8;
+  --line-strong: #bfc4b8;
+  --accent: #e45c3f;
+  --accent-hover: #c9482e;
   --accent-text: #ffffff;
-  --accent-2: #08705d;
-  --accent-2-soft: rgba(21, 131, 111, 0.14);
-  --link: #0a6f83;
-  --ok: #2c8b57;
-  --ok-soft: rgba(44, 139, 87, 0.13);
-  --warn: #b7791f;
-  --warn-text: #7a4a00;
-  --warn-soft: rgba(183, 121, 31, 0.13);
-  --danger: #b84949;
-  --danger-text: #9c2f2f;
-  --danger-soft: rgba(184, 73, 73, 0.12);
-  --focus: #007c89;
-  --button-bg: #f8f8f4;
-  --number-bg: #edf3ef;
-  --skeleton: #e7e7dd;
-  --shadow-soft: 0 12px 28px rgba(23, 23, 23, 0.06);
-  --shadow-strong: 0 18px 44px rgba(23, 23, 23, 0.18);
+  --teal: #087d78;
+  --teal-dark: #05635f;
+  --teal-soft: #e1f1ed;
+  --success: #27845a;
+  --success-soft: #e4f2e9;
+  --warning: #b97818;
+  --warning-soft: #f6ead5;
+  --danger: #b84b43;
+  --danger-soft: #f8e6e3;
+  --focus: #007f8b;
+  --shadow-panel: 0 20px 50px rgba(30, 37, 31, 0.18);
+  --shadow-float: 0 10px 28px rgba(30, 37, 31, 0.16);
   color: var(--text);
   background: var(--page);
   font: 16px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -47,41 +41,34 @@
 }
 
 :root[data-theme='dark'] {
-  --page: #121312;
-  --paper: #f8f8f2;
-  --surface: #1b1d1b;
-  --field: #242723;
-  --city-band: #171a17;
-  --map-bg: #202620;
-  --ink: #f8f8f2;
-  --brand-bg: #f8f8f2;
-  --brand-fg: #121312;
-  --active-bg: #f8f8f2;
-  --active-fg: #121312;
-  --text: #cbcfc6;
-  --text-strong: #f8f8f2;
-  --muted: #a1a89d;
-  --line: #343832;
-  --line-strong: #555d52;
-  --accent: #ff765d;
-  --accent-text: #1a120f;
-  --accent-2: #55d6ba;
-  --accent-2-soft: rgba(85, 214, 186, 0.14);
-  --link: #7bd8e2;
-  --ok: #67c58d;
-  --ok-soft: rgba(103, 197, 141, 0.14);
-  --warn: #e2b35e;
-  --warn-text: #f5cf87;
-  --warn-soft: rgba(226, 179, 94, 0.14);
-  --danger: #f07878;
-  --danger-text: #ff9c9c;
-  --danger-soft: rgba(240, 120, 120, 0.14);
-  --focus: #8be9d2;
-  --button-bg: #232622;
-  --number-bg: #202820;
-  --skeleton: #2f332d;
-  --shadow-soft: 0 12px 28px rgba(0, 0, 0, 0.28);
-  --shadow-strong: 0 22px 52px rgba(0, 0, 0, 0.45);
+  --page: #111411;
+  --panel: #1a1e1a;
+  --surface: #202420;
+  --surface-raised: #252a25;
+  --surface-subtle: #242924;
+  --surface-active: #1c3732;
+  --map-bg: #1d241f;
+  --text: #d3d8d0;
+  --text-strong: #f6f7f2;
+  --muted: #a1a99e;
+  --muted-strong: #c0c7bd;
+  --line: #363c35;
+  --line-strong: #596157;
+  --accent: #ff765c;
+  --accent-hover: #ff8b73;
+  --accent-text: #20120f;
+  --teal: #59d2c3;
+  --teal-dark: #83e2d6;
+  --teal-soft: #193b36;
+  --success: #70ca94;
+  --success-soft: #1b3828;
+  --warning: #e1b15c;
+  --warning-soft: #3d311e;
+  --danger: #f18a82;
+  --danger-soft: #422522;
+  --focus: #8de4d8;
+  --shadow-panel: 0 24px 56px rgba(0, 0, 0, 0.42);
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.38);
   color-scheme: dark;
 }
 
@@ -89,27 +76,55 @@
   box-sizing: border-box;
 }
 
-html {
+html,
+body,
+#root {
+  width: 100%;
   min-width: 320px;
+  min-height: 100%;
+}
+
+html {
   background: var(--page);
 }
 
 body {
-  min-width: 320px;
+  min-height: 100svh;
   margin: 0;
+  overflow: hidden;
 }
 
 button,
 input,
 select,
 textarea {
+  margin: 0;
+  color: inherit;
+  font: inherit;
   letter-spacing: 0;
+}
+
+button,
+select {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled {
+  cursor: not-allowed;
 }
 
 a {
   color: inherit;
 }
 
-#root {
-  min-height: 100svh;
+::selection {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+@media (max-width: 900px) {
+  :root {
+    --header-height: 64px;
+  }
 }
