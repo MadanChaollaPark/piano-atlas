@@ -18,6 +18,7 @@ export type Filters = {
 export type UserLocation = {
   lat: number
   lng: number
+  accuracy?: number
 }
 
 export const defaultFilters: Filters = {

@@ -199,6 +199,14 @@ button,
   color: #176c71;
 }
 
+.leaflet-control-zoom a {
+  width: 44px !important;
+  height: 44px !important;
+  display: grid !important;
+  place-items: center;
+  line-height: 44px !important;
+}
+
 .leaflet-popup-content-wrapper {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -536,14 +544,9 @@ button,
 
 .status-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 1px;
-  scrollbar-width: none;
-}
-
-.status-filters::-webkit-scrollbar {
-  display: none;
+  overflow: visible;
 }
 
 .status-filters button {
@@ -567,6 +570,39 @@ button,
 
 :root[data-theme='dark'] .status-filters button.active {
   color: #10211e;
+}
+
+.advanced-filters {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.advanced-filters summary {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-filters summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-filters[open] summary {
+  color: var(--teal-dark);
+}
+
+.advanced-filter-selects {
+  margin-top: 8px;
+}
+
+.advanced-filter-selects label:last-child {
+  grid-column: 1 / -1;
 }
 
 .results-heading {
@@ -879,12 +915,26 @@ button,
 }
 
 .detail-note {
+  display: grid;
+  gap: 2px;
   margin-top: 12px;
   padding-left: 10px;
   border-left: 2px solid var(--accent);
   color: var(--muted-strong);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.detail-note strong {
+  color: var(--text-strong);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.detail-verified {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .detail-actions {
@@ -953,6 +1003,36 @@ button,
   background: var(--teal-dark);
 }
 
+.list-empty {
+  min-height: 250px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 28px 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.list-empty strong {
+  color: var(--text-strong);
+}
+
+.list-empty p {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.list-empty button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--teal-dark);
+  border-radius: 8px;
+  color: var(--accent-text);
+  background: var(--teal-dark);
+}
+
 .skeleton-rows {
   display: grid;
 }
@@ -987,6 +1067,10 @@ button,
 }
 
 .mobile-view-switch {
+  display: none;
+}
+
+.mobile-explorer-peek {
   display: none;
 }
 
@@ -1084,6 +1168,13 @@ button,
   color: var(--danger);
   font-size: 12px;
   font-weight: 700;
+}
+
+.report-privacy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .submit-report {
@@ -1229,9 +1320,7 @@ button,
   }
 
   .intro-copy {
-    max-width: 440px;
-    margin-top: 8px;
-    font-size: 12px;
+    display: none;
   }
 
   .search-control {
@@ -1279,6 +1368,10 @@ button,
 
   .leaflet-bottom {
     bottom: 64px;
+  }
+
+  .atlas-stage:has(.mobile-explorer-peek) .leaflet-bottom {
+    bottom: 142px;
   }
 
   .leaflet-bottom .leaflet-control {
@@ -1348,6 +1441,47 @@ button,
   .mobile-view-switch button.active {
     color: var(--accent-text);
     background: var(--accent);
+  }
+
+  .mobile-explorer-peek {
+    position: fixed;
+    right: 12px;
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 66px));
+    left: 12px;
+    z-index: 1200;
+    width: min(366px, calc(100% - 24px));
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 auto;
+    padding: 9px 13px;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    color: var(--text-strong);
+    background: var(--panel);
+    box-shadow: var(--shadow-panel);
+    text-align: left;
+  }
+
+  .mobile-explorer-peek span,
+  .mobile-explorer-peek strong {
+    display: block;
+  }
+
+  .mobile-explorer-peek span {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .mobile-explorer-peek strong {
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .form-grid {

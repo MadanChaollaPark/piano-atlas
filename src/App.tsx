@@ -15,6 +15,7 @@ import {
   RefreshCcw,
   Search,
   Send,
+  SlidersHorizontal,
   Sun,
   X,
 } from 'lucide-react'
@@ -64,11 +65,24 @@ function App() {
   const [syncing, setSyncing] = useState(false)
   const [notice, setNotice] = useState('')
   const [reportTarget, setReportTarget] = useState<Piano | 'new' | null>(null)
+  const reportOpenerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('piano-atlas-theme', theme)
+    writeStoredTheme(theme)
   }, [theme])
+
+  useEffect(() => {
+    const restoreUrlState = () => {
+      setFilters(readFiltersFromUrl())
+      setSelectedId(
+        new URLSearchParams(window.location.search).get('piano') ?? undefined,
+      )
+    }
+
+    window.addEventListener('popstate', restoreUrlState)
+    return () => window.removeEventListener('popstate', restoreUrlState)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -124,6 +138,16 @@ function App() {
     }
   }, [cities, filters.city, loading])
 
+  useEffect(() => {
+    if (!selectedId || mobileView === 'map') return
+
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-piano-id="${CSS.escape(selectedId)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+  }, [mobileView, selectedId])
+
   function updateFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
   }
@@ -131,6 +155,11 @@ function App() {
   function choosePiano(id: string, showMap = false) {
     setSelectedId(id)
     if (showMap) setMobileView('map')
+  }
+
+  function openReport(target: Piano | 'new') {
+    reportOpenerRef.current = document.activeElement as HTMLElement | null
+    setReportTarget(target)
   }
 
   function locateUser() {
@@ -148,14 +177,17 @@ function App() {
         const location = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
         }
         const nearest = filterPianos(pianos, filters, location)[0]
         setUserLocation(location)
         setSelectedId(nearest?.id)
+        const accuracyNote =
+          location.accuracy > 1000 ? ' using an approximate position' : ''
         setNotice(
           nearest
-            ? `${nearest.name} is the closest listed piano to you.`
-            : 'Your location is shown on the map.',
+            ? `${nearest.name} is the closest listed piano${accuracyNote}.`
+            : `Your${accuracyNote} location is shown on the map.`,
         )
         setMobileView('map')
         setLocating(false)
@@ -168,7 +200,7 @@ function App() {
         setNotice(message)
         setLocating(false)
       },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
+      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 },
     )
   }
 
@@ -182,7 +214,7 @@ function App() {
     setNotice(
       response.meta.source === 'api'
         ? `Map refreshed with ${response.pianos.length.toLocaleString()} records.`
-        : 'The live source is unavailable, so verified fallback records remain visible.',
+        : 'The live source is unavailable, so curated fallback records remain visible.',
     )
     setSyncing(false)
   }
@@ -217,14 +249,16 @@ function App() {
 
         <div className="world-count" aria-live="polite">
           <span className="live-dot" aria-hidden="true" />
-          {loading ? 'Opening the atlas' : `${pianos.length.toLocaleString()} mapped places`}
+          {loading
+            ? 'Opening the atlas'
+            : `${(meta?.count ?? pianos.length).toLocaleString()} mapped places`}
         </div>
 
         <div className="header-actions">
           <button
             className="icon-button"
             type="button"
-            onClick={() => setReportTarget('new')}
+            onClick={() => openReport('new')}
             aria-label="Add a public piano"
             title="Add a public piano"
           >
@@ -258,7 +292,7 @@ function App() {
           />
 
           <div className="map-tools" aria-label="Map actions">
-            <button type="button" onClick={locateUser} disabled={locating}>
+            <button type="button" onClick={locateUser} disabled={locating || loading}>
               <LocateFixed size={18} />
               <span>{locating ? 'Locating' : 'Near me'}</span>
             </button>
@@ -277,7 +311,7 @@ function App() {
                   : undefined
               }
               onClose={() => setSelectedId(undefined)}
-              onReport={() => setReportTarget(selectedPiano)}
+              onReport={() => openReport(selectedPiano)}
             />
           )}
 
@@ -326,11 +360,11 @@ function App() {
           </div>
 
           <div className="primary-actions">
-            <button className="primary-button" type="button" onClick={locateUser} disabled={locating}>
+            <button className="primary-button" type="button" onClick={locateUser} disabled={locating || loading}>
               <Navigation size={17} />
               {locating ? 'Finding you' : 'Closest to me'}
             </button>
-            <button className="secondary-button" type="button" onClick={() => setReportTarget('new')}>
+            <button className="secondary-button" type="button" onClick={() => openReport('new')}>
               <Flag size={17} />
               Add piano
             </button>
@@ -378,6 +412,74 @@ function App() {
                 </button>
               ))}
             </div>
+
+            <details
+              className="advanced-filters"
+              open={
+                filters.confidence !== 'all' ||
+                filters.source !== 'all' ||
+                !statusFilters.includes(filters.status)
+              }
+            >
+              <summary>
+                <SlidersHorizontal size={15} />
+                More filters
+              </summary>
+              <div className="filter-selects advanced-filter-selects">
+                <label>
+                  <span>Status</span>
+                  <select
+                    value={filters.status}
+                    onChange={(event) =>
+                      updateFilter('status', event.target.value as Filters['status'])
+                    }
+                  >
+                    <option value="all">Any status</option>
+                    <option value="available">Available</option>
+                    <option value="likely_available">Likely available</option>
+                    <option value="limited_access">Limited access</option>
+                    <option value="unknown">Unverified</option>
+                    <option value="seasonal_closed">Seasonal</option>
+                    <option value="damaged_present">Damaged</option>
+                    <option value="missing_reported">Missing report</option>
+                    <option value="retired">Historical</option>
+                  </select>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </label>
+                <label>
+                  <span>Confidence</span>
+                  <select
+                    value={filters.confidence}
+                    onChange={(event) =>
+                      updateFilter(
+                        'confidence',
+                        event.target.value as Filters['confidence'],
+                      )
+                    }
+                  >
+                    <option value="all">Any confidence</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </label>
+                <label>
+                  <span>Source</span>
+                  <select
+                    value={filters.source}
+                    onChange={(event) =>
+                      updateFilter('source', event.target.value as Filters['source'])
+                    }
+                  >
+                    <option value="all">Any source</option>
+                    <option value="openstreetmap">OpenStreetMap</option>
+                    <option value="curated_seed">Curated fallback</option>
+                  </select>
+                  <ChevronDown size={15} aria-hidden="true" />
+                </label>
+              </div>
+            </details>
           </div>
 
           <div className="results-heading">
@@ -398,6 +500,16 @@ function App() {
 
           <div id="piano-results" className="piano-list" aria-busy={loading} tabIndex={-1}>
             {loading && <SkeletonRows />}
+            {!loading && !visiblePianos.length && (
+              <div className="list-empty" role="status">
+                <MapPin size={24} />
+                <strong>No pianos match these filters</strong>
+                <p>Try a broader place, access setting, or availability status.</p>
+                <button type="button" onClick={() => setFilters(defaultFilters)}>
+                  Clear filters
+                </button>
+              </div>
+            )}
             {!loading && visiblePianos.map((piano, index) => (
               <PianoRow
                 key={piano.id}
@@ -414,35 +526,51 @@ function App() {
             <span>
               {meta?.source === 'api' ? 'Live OpenStreetMap layer' : 'Curated fallback layer'}
             </span>
-            <a href="https://www.awwwards.com/sites/tavalo" target="_blank" rel="noreferrer">
-              Tavalo-inspired design <ExternalLink size={12} />
+            <a
+              href={meta?.licenseUrl ?? 'https://www.openstreetmap.org/copyright'}
+              target="_blank"
+              rel="noreferrer"
+            >
+              ODbL data license <ExternalLink size={12} />
             </a>
           </footer>
         </aside>
-      </main>
 
-      <div className="mobile-view-switch" role="group" aria-label="Choose map or list view">
-        <button
-          type="button"
-          className={mobileView === 'map' ? 'active' : ''}
-          onClick={() => setMobileView('map')}
-          aria-pressed={mobileView === 'map'}
-        >
-          <MapIcon size={18} /> Map
-        </button>
-        <button
-          type="button"
-          className={mobileView === 'list' ? 'active' : ''}
-          onClick={() => setMobileView('list')}
-          aria-pressed={mobileView === 'list'}
-        >
-          <List size={18} /> List
-        </button>
-      </div>
+        {mobileView === 'map' && !selectedPiano && (
+          <button
+            className="mobile-explorer-peek"
+            type="button"
+            onClick={() => setMobileView('list')}
+          >
+            <span>{resultLabel}</span>
+            <strong>{filters.query ? `Results for “${filters.query}”` : 'Search and filter pianos'}</strong>
+          </button>
+        )}
+
+        <div className="mobile-view-switch" role="group" aria-label="Choose map or list view">
+          <button
+            type="button"
+            className={mobileView === 'map' ? 'active' : ''}
+            onClick={() => setMobileView('map')}
+            aria-pressed={mobileView === 'map'}
+          >
+            <MapIcon size={18} /> Map
+          </button>
+          <button
+            type="button"
+            className={mobileView === 'list' ? 'active' : ''}
+            onClick={() => setMobileView('list')}
+            aria-pressed={mobileView === 'list'}
+          >
+            <List size={18} /> List
+          </button>
+        </div>
+      </main>
 
       {reportTarget && (
         <ReportDialog
           target={reportTarget}
+          returnFocus={reportOpenerRef.current}
           onClose={() => setReportTarget(null)}
           onDone={(message) => {
             setReportTarget(null)
@@ -515,11 +643,19 @@ function PianoDetail({
       <p className="detail-venue">{piano.venue}</p>
       <dl>
         <div><dt>Access</dt><dd>{accessLabel(piano.access)}</dd></div>
+        <div><dt>Condition</dt><dd>{capitalize(piano.condition)}</dd></div>
         <div><dt>Confidence</dt><dd>{confidenceLabel(piano.confidence)}</dd></div>
+        <div><dt>Instrument</dt><dd>{instrumentLabel(piano.instrument)}</dd></div>
+        <div><dt>Setting</dt><dd>{piano.indoor === null ? 'Unknown' : piano.indoor ? 'Indoor' : 'Outdoor'}</dd></div>
         {distance !== undefined && <div><dt>Distance</dt><dd>{formatDistance(distance)}</dd></div>}
       </dl>
-      {(piano.insideDirections || piano.accessNotes) && (
-        <p className="detail-note">{piano.insideDirections ?? piano.accessNotes}</p>
+      {piano.address && <p className="detail-note"><strong>Address</strong>{piano.address}</p>}
+      {piano.insideDirections && <p className="detail-note"><strong>Where inside</strong>{piano.insideDirections}</p>}
+      {piano.accessNotes && <p className="detail-note"><strong>Access notes</strong>{piano.accessNotes}</p>}
+      {piano.openingHours && <p className="detail-note"><strong>Hours</strong>{piano.openingHours}</p>}
+      {piano.notes && <p className="detail-note"><strong>Listing notes</strong>{piano.notes}</p>}
+      {piano.lastVerified && (
+        <p className="detail-verified">Last verified {formatDate(piano.lastVerified)}</p>
       )}
       <div className="detail-actions">
         <a href={mapsUrl(piano)} target="_blank" rel="noreferrer">
@@ -538,6 +674,26 @@ function PianoDetail({
   )
 }
 
+function instrumentLabel(instrument: Piano['instrument']) {
+  const labels: Record<Piano['instrument'], string> = {
+    acoustic_piano: 'Acoustic piano',
+    digital_piano: 'Digital piano',
+    upright: 'Upright piano',
+    grand: 'Grand piano',
+    piano_unknown: 'Piano',
+  }
+  return labels[instrument]
+}
+
+function capitalize(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function formatDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString()
+}
+
 function SkeletonRows() {
   return (
     <div className="skeleton-rows" aria-hidden="true">
@@ -550,10 +706,12 @@ function SkeletonRows() {
 
 function ReportDialog({
   target,
+  returnFocus,
   onClose,
   onDone,
 }: {
   target: Piano | 'new'
+  returnFocus: HTMLElement | null
   onClose: () => void
   onDone: (message: string) => void
 }) {
@@ -563,14 +721,11 @@ function ReportDialog({
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
   const [country, setCountry] = useState('')
-  const [contact, setContact] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const dialogRef = useRef<HTMLDivElement>(null)
-  const previousFocus = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    previousFocus.current = document.activeElement as HTMLElement | null
     const priorOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const backgroundRegions = Array.from(
@@ -615,9 +770,9 @@ function ReportDialog({
       window.removeEventListener('keydown', handleKeys)
       document.body.style.overflow = priorOverflow
       backgroundRegions.forEach((region) => region.removeAttribute('inert'))
-      previousFocus.current?.focus()
+      window.setTimeout(() => returnFocus?.focus(), 0)
     }
-  }, [onClose])
+  }, [onClose, returnFocus])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -632,7 +787,6 @@ function ReportDialog({
         city: isNew ? city : target.city,
         country: isNew ? country : target.country,
         note,
-        contact: contact || undefined,
       })
       onDone(isNew ? 'Thank you. Your piano tip was saved for review.' : 'Thank you. Your piano update was saved for review.')
     } catch (submitError) {
@@ -689,7 +843,9 @@ function ReportDialog({
               placeholder="Exact location, access, condition, hours, or a supporting link"
             />
           </label>
-          <label><span>Contact (optional)</span><input value={contact} onChange={(event) => setContact(event.target.value)} /></label>
+          <p className="report-privacy">
+            Reports are stored without contact details and reviewed before listings change.
+          </p>
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button submit-report" type="submit" disabled={submitting}>
             <Send size={16} /> {submitting ? 'Saving' : 'Submit for review'}
@@ -701,9 +857,22 @@ function ReportDialog({
 }
 
 function readInitialTheme(): Theme {
-  const saved = localStorage.getItem('piano-atlas-theme')
+  let saved: string | null = null
+  try {
+    saved = localStorage.getItem('piano-atlas-theme')
+  } catch {
+    // Storage access is optional; the system preference remains usable.
+  }
   if (saved === 'light' || saved === 'dark') return saved
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function writeStoredTheme(theme: Theme) {
+  try {
+    localStorage.setItem('piano-atlas-theme', theme)
+  } catch {
+    // Theme persistence must never prevent the app from rendering.
+  }
 }
 
 function readFiltersFromUrl(): Filters {

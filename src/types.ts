@@ -94,5 +94,4 @@ export type PianoReport = {
   lat?: number
   lng?: number
   note: string
-  contact?: string
 }
