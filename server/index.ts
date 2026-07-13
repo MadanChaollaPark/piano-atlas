@@ -1,7 +1,8 @@
 import compression from 'compression'
 import cors from 'cors'
 import express, { type Request, type RequestHandler } from 'express'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
@@ -17,6 +18,13 @@ type CacheFile = {
   pianos: Piano[]
   upstream: string
   error?: string
+}
+
+type Bbox = {
+  west: number
+  south: number
+  east: number
+  north: number
 }
 
 type OverpassElement = {
@@ -46,19 +54,41 @@ const refreshRateLimit = createRateLimiter({
 })
 const reportRateLimit = createRateLimiter({ limit: 10, windowMs: 60_000 })
 let inFlightOverpassRefresh: Promise<CacheFile> | null = null
+let reportWriteQueue: Promise<void> = Promise.resolve()
 
+app.disable('x-powered-by')
 app.use(compression())
-app.use(cors())
+app.use(
+  cors({
+    origin(origin, callback) {
+      callback(null, !origin || isAllowedCorsOrigin(origin))
+    },
+  }),
+)
 app.use(express.json({ limit: '64kb' }))
+
+const accessValues = ['public', 'permissive', 'customers', 'limited', 'unknown'] as const
+const confidenceValues = ['high', 'medium', 'low'] as const
+const statusValues = [
+  'available',
+  'likely_available',
+  'unknown',
+  'limited_access',
+  'seasonal_closed',
+  'damaged_present',
+  'missing_reported',
+  'retired',
+] as const
+const sourceValues = ['openstreetmap', 'curated_seed'] as const
 
 const querySchema = z.object({
   q: z.string().optional(),
   city: z.string().optional(),
-  access: z.string().optional(),
-  confidence: z.string().optional(),
-  status: z.string().optional(),
-  source: z.string().optional(),
-  bbox: z.string().optional(),
+  access: z.enum(['all', ...accessValues]).optional(),
+  confidence: z.enum(['all', ...confidenceValues]).optional(),
+  status: z.enum(['all', ...statusValues]).optional(),
+  source: z.enum(['all', ...sourceValues]).optional(),
+  bbox: z.string().transform(parseBbox).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   refresh: z
     .enum(['true', 'false'])
@@ -81,25 +111,26 @@ const reportSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   note: z.string().min(8).max(1200),
-  contact: z.string().max(160).optional(),
-}).superRefine((report, context) => {
-  if (report.kind === 'add_new') {
-    if (!report.name || !report.city || !report.country) {
+})
+  .strict()
+  .superRefine((report, context) => {
+    if (report.kind === 'add_new') {
+      if (!report.name || !report.city || !report.country) {
+        context.addIssue({
+          code: 'custom',
+          message: 'New piano reports require name, city, and country',
+        })
+      }
+      return
+    }
+
+    if (!report.pianoId) {
       context.addIssue({
         code: 'custom',
-        message: 'New piano reports require name, city, and country',
+        message: 'Listing updates require a piano ID',
       })
     }
-    return
-  }
-
-  if (!report.pianoId) {
-    context.addIssue({
-      code: 'custom',
-      message: 'Listing updates require a piano ID',
-    })
-  }
-})
+  })
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'piano-atlas-api' })
@@ -172,10 +203,7 @@ app.get('/api/pianos', refreshRateLimit, async (request, response) => {
 })
 
 app.get('/api/pianos/:id', async (request, response) => {
-  const cache = await readCache()
-  const piano = [...(cache?.pianos ?? []), ...seedPianos].find(
-    (item) => item.id === request.params.id,
-  )
+  const piano = await findPiano(request.params.id)
 
   if (!piano) {
     response.status(404).json({ error: 'Piano not found' })
@@ -197,12 +225,21 @@ app.post(
     }
 
     const report = sanitizeReport(parsed.data)
-    const existing = await readReports()
-    const id = `report:${Date.now().toString(36)}`
-    await writeReports([
-      ...existing,
-      { id, createdAt: new Date().toISOString(), ...report },
-    ])
+    if (report.kind !== 'add_new' && !(await findPiano(report.pianoId ?? ''))) {
+      response.status(404).json({ error: 'Piano not found' })
+      return
+    }
+
+    const id = await serializeReportWrite(async () => {
+      const existing = await readReports()
+      const reportId = `report:${Date.now().toString(36)}-${randomUUID()}`
+      await writeReports([
+        ...existing,
+        { id: reportId, createdAt: new Date().toISOString(), ...report },
+      ])
+      return reportId
+    })
+
     response.status(201).json({ ok: true, id })
   },
 )
@@ -427,30 +464,67 @@ function filtersFromQuery(query: z.infer<typeof querySchema>): Filters {
   return {
     query: query.q ?? '',
     city: query.city ?? 'all',
-    access: (query.access as Filters['access']) ?? 'all',
-    confidence: (query.confidence as Filters['confidence']) ?? 'all',
-    status: (query.status as Filters['status']) ?? 'all',
-    source: (query.source as Filters['source']) ?? 'all',
+    access: query.access ?? 'all',
+    confidence: query.confidence ?? 'all',
+    status: query.status ?? 'all',
+    source: query.source ?? 'all',
   }
 }
 
-function applyBbox(pianos: Piano[], bbox?: string) {
+function parseBbox(value: string, context: z.RefinementCtx): Bbox {
+  const parts = value.split(',')
+  const coordinates = parts.map((part) => part.trim())
+  const numbers = coordinates.map((part) => Number(part))
+
+  if (
+    coordinates.length !== 4 ||
+    coordinates.some((part) => part === '') ||
+    numbers.some((part) => !Number.isFinite(part))
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'bbox must be west,south,east,north',
+    })
+    return z.NEVER
+  }
+
+  const [west, south, east, north] = numbers
+  if (
+    west < -180 ||
+    west > 180 ||
+    east < -180 ||
+    east > 180 ||
+    south < -90 ||
+    south > 90 ||
+    north < -90 ||
+    north > 90 ||
+    south > north
+  ) {
+    context.addIssue({
+      code: 'custom',
+      message: 'bbox values are out of range',
+    })
+    return z.NEVER
+  }
+
+  return { west, south, east, north }
+}
+
+function applyBbox(pianos: Piano[], bbox?: Bbox) {
   if (!bbox) {
     return pianos
   }
 
-  const parts = bbox.split(',').map(Number)
-  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
-    return pianos
-  }
-
-  const [west, south, east, north] = parts
+  const crossesAntimeridian = bbox.west > bbox.east
   return pianos.filter(
-    (piano) =>
-      piano.lng >= west &&
-      piano.lng <= east &&
-      piano.lat >= south &&
-      piano.lat <= north,
+    (piano) => {
+      const inLatitude = piano.lat >= bbox.south && piano.lat <= bbox.north
+      const inLongitude = crossesAntimeridian
+        ? piano.lng >= bbox.west || piano.lng <= bbox.east
+        : piano.lng >= bbox.west && piano.lng <= bbox.east
+
+      return inLatitude && inLongitude
+    },
   )
 }
 
@@ -468,8 +542,7 @@ async function readCache() {
 }
 
 async function writeCache(cache: CacheFile) {
-  await mkdir(cacheDir, { recursive: true })
-  await writeFile(pianoCachePath, JSON.stringify(cache, null, 2))
+  await writeJsonFile(pianoCachePath, cache)
 }
 
 async function readReports() {
@@ -483,8 +556,7 @@ async function readReports() {
 }
 
 async function writeReports(reports: Array<PianoReport & { id: string; createdAt: string }>) {
-  await mkdir(cacheDir, { recursive: true })
-  await writeFile(reportsPath, JSON.stringify(reports, null, 2))
+  await writeJsonFile(reportsPath, reports)
 }
 
 function sanitizeReport(report: PianoReport): PianoReport {
@@ -494,6 +566,61 @@ function sanitizeReport(report: PianoReport): PianoReport {
       typeof value === 'string' ? value.replace(/[<>]/g, '').trim() : value,
     ]),
   ) as PianoReport
+}
+
+async function findPiano(id: string) {
+  const cache = await readCache()
+  return [...(cache?.pianos ?? []), ...seedPianos].find(
+    (item) => item.id === id,
+  )
+}
+
+async function writeJsonFile(filePath: string, value: unknown) {
+  await mkdir(path.dirname(filePath), { recursive: true })
+  const tempPath = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
+  )
+
+  try {
+    await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+    })
+    await rename(tempPath, filePath)
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+async function serializeReportWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = reportWriteQueue.then(operation, operation)
+  reportWriteQueue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
+function isAllowedCorsOrigin(origin: string) {
+  const configuredOrigins = process.env.CORS_ORIGINS?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (configuredOrigins?.length) {
+    return configuredOrigins.includes(origin)
+  }
+
+  try {
+    const { hostname, protocol } = new URL(origin)
+    return (
+      (protocol === 'http:' || protocol === 'https:') &&
+      ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname)
+    )
+  } catch {
+    return false
+  }
 }
 
 function noStore(
@@ -515,6 +642,7 @@ function createRateLimiter({
   shouldLimit?: (request: Request) => boolean
 }): RequestHandler {
   const clients = new Map<string, { count: number; resetAt: number }>()
+  let lastPrunedAt = 0
 
   return (request, response, next) => {
     if (!shouldLimit(request)) {
@@ -523,6 +651,15 @@ function createRateLimiter({
     }
 
     const now = Date.now()
+    if (now - lastPrunedAt >= windowMs) {
+      for (const [key, entry] of clients) {
+        if (entry.resetAt <= now) {
+          clients.delete(key)
+        }
+      }
+      lastPrunedAt = now
+    }
+
     const key = request.ip || request.socket.remoteAddress || 'local'
     const current = clients.get(key)
     const entry =
