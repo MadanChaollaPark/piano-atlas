@@ -31,21 +31,21 @@ npm run dev:web
 
 ## What Sol includes
 
-- Full-height interactive map with synchronized piano listings and detail view.
-- Search by city, venue, or country, plus city, access, and availability filters.
-- Browser geolocation for nearest-first discovery.
+- Full-height interactive map with clustered markers, synchronized listings, and richer detail views.
+- Search by city, venue, or country, plus city, access, availability, confidence, and source filters.
+- Browser geolocation with nearest-first discovery and an accuracy radius.
 - Directions and source links for individual records.
 - Mobile map/list switcher and responsive desktop explorer panel.
 - Persisted light/dark theme, keyboard navigation, focus management, and a skip link.
 - OpenStreetMap/Overpass refresh with cached or curated fallback records.
-- Forms for adding a piano or reporting availability, access, damage, or removal.
+- Privacy-minimized forms for adding a piano or reporting availability, access, damage, or removal without collecting contact details.
 - URL-backed filters and selected-piano state for shareable views.
 
 ## Data scope
 
 Piano Atlas is a discovery aid, not a literally complete registry or a guarantee
 that a piano is present, playable, public, or available now. Bulk records come
-from OpenStreetMap tags such as `amenity=piano` and related instrument tags;
+from the explicit OpenStreetMap `amenity=piano` tag;
 coverage, names, access details, hours, and verification dates vary by place.
 The current API returns at most 1,000 records per request, and the curated fallback
 is intentionally a small resilience dataset. Check the linked source and venue
@@ -89,7 +89,8 @@ data, design, and production notes.
 ## Production note
 
 The Express service is currently a local backend: it binds to `127.0.0.1:5187`
-and stores cache/report JSON on local disk. Before deployment, move those files
-to durable storage, run refreshes as a managed job, add report moderation and
+and stores cache/report JSON on local disk. Writes are serialized and atomic,
+but the files remain development-sized storage. Before deployment, move them to
+durable storage, run refreshes as a managed job, add report moderation and
 abuse controls, and route same-origin `/api` traffic to the Node service. The
 static `dist` output does not include or deploy the API.

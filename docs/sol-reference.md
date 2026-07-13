@@ -23,9 +23,10 @@ screen:
 
 - Map markers, list rows, and the selected detail panel stay synchronized.
 - Text search covers city, venue, and country fields.
-- City, access, and availability filters can be combined and reset together.
-- Browser geolocation sorts records by straight-line distance and selects the
-  nearest matching record; it is not walking or transit routing.
+- City, access, availability, confidence, and source filters can be combined and reset together.
+- Browser geolocation sorts records by straight-line distance, displays the
+  browser-provided accuracy radius, and selects the nearest matching record;
+  it is not walking or transit routing.
 - Detail panels expose status, access, confidence, directions, and the record's
   source when available.
 - Query parameters preserve active filters and the selected piano in the URL.
@@ -35,12 +36,13 @@ screen:
 - The sync action asks the API to refresh from Overpass and retains cached or
   curated fallback records when the upstream service is unavailable.
 - Add/report submissions cover new locations, presence confirmation, missing or
-  damaged pianos, and changed access; submissions enter a review queue only.
+  damaged pianos, and changed access. They collect no contact details and enter
+  a review queue only.
 
 ## Data contract and limitations
 
 The bulk-ingestion source is OpenStreetMap. The Overpass query accepts
-`amenity=piano` and several related piano or musical-instrument tags. Curated
+the explicit `amenity=piano` tag. Curated
 seed records provide a small fallback when the API or Overpass is unavailable.
 
 The atlas should never be described as containing "every public piano" in a
