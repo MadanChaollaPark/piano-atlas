@@ -1,7 +1,27 @@
 import { expect, test } from '@playwright/test'
+import axe from 'axe-core'
 import type { Page } from '@playwright/test'
 
 const pianosApiUrl = /\/api\/pianos(?:\?.*)?$/
+const reportsApiUrl = /\/api\/reports$/
+const apiBaseUrl = 'http://127.0.0.1:5187'
+
+declare global {
+  interface Window {
+    axe: typeof axe
+  }
+}
+
+type Theme = 'light' | 'dark'
+
+type ReportPayload = {
+  pianoId?: string
+  kind: string
+  name?: string
+  city?: string
+  country?: string
+  note: string
+}
 
 const apiPianos = [
   {
@@ -84,6 +104,19 @@ function pianoList(page: Page) {
     .locator('.piano-list')
 }
 
+function explorerPanel(page: Page) {
+  return page.getByRole('complementary', { name: 'Explore public pianos' })
+}
+
+function primaryFilterSelect(page: Page, label: string) {
+  return page
+    .locator('.filter-block > .filter-selects label')
+    .filter({
+      has: page.locator('span').filter({ hasText: new RegExp(`^${label}$`) }),
+    })
+    .locator('select')
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   await expect
     .poll(() =>
@@ -95,6 +128,278 @@ async function expectNoHorizontalOverflow(page: Page) {
     )
     .toBeLessThanOrEqual(0)
 }
+
+async function setThemeBeforeLoad(page: Page, theme: Theme) {
+  await page.addInitScript((themeName) => {
+    window.localStorage.setItem('piano-atlas-theme', themeName)
+  }, theme)
+}
+
+async function expectNoSeriousOrCriticalAxeViolations(
+  page: Page,
+  label: string,
+) {
+  await page.addScriptTag({ content: axe.source })
+  const violations = await page.evaluate(async () => {
+    const results = await window.axe.run(document, {
+      resultTypes: ['violations'],
+    })
+
+    return results.violations
+      .filter(
+        (violation) =>
+          violation.impact === 'serious' || violation.impact === 'critical',
+      )
+      .map((violation) => ({
+        id: violation.id,
+        impact: violation.impact,
+        help: violation.help,
+        nodes: violation.nodes.map((node) => ({
+          target: node.target.join(' '),
+          summary: node.failureSummary,
+        })),
+      }))
+  })
+
+  expect(
+    violations,
+    `${label} has serious/critical axe violations:\n${JSON.stringify(
+      violations,
+      null,
+      2,
+    )}`,
+  ).toEqual([])
+}
+
+async function openSelectedPianoReport(page: Page, isMobile: boolean) {
+  if (isMobile) {
+    await page
+      .getByRole('group', { name: 'Choose map or list view' })
+      .getByRole('button', { name: 'List', exact: true })
+      .click()
+  }
+
+  await pianoList(page)
+    .getByRole('button', { name: /Seoul City Hall piano/ })
+    .click()
+
+  const selectedPiano = page.getByRole('complementary', {
+    name: 'Selected piano',
+  })
+  await expect(selectedPiano).toBeVisible()
+  await selectedPiano
+    .getByRole('button', { name: 'Report', exact: true })
+    .click()
+
+  const reportDialog = page.getByRole('dialog', {
+    name: 'Seoul City Hall piano',
+  })
+  await expect(reportDialog).toBeVisible()
+  return reportDialog
+}
+
+test.describe('accessibility', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockPianoApi(page)
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`has no serious or critical axe violations in ${theme} mode`, async ({
+      page,
+      isMobile,
+    }, testInfo) => {
+      await setThemeBeforeLoad(page, theme)
+      await page.goto('/')
+
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await expect(
+        page.getByRole('region', { name: 'Public piano map' }),
+      ).toBeVisible()
+
+      if (isMobile) {
+        await expectNoSeriousOrCriticalAxeViolations(
+          page,
+          `${testInfo.project.name} ${theme} map view`,
+        )
+        await page
+          .getByRole('group', { name: 'Choose map or list view' })
+          .getByRole('button', { name: 'List', exact: true })
+          .click()
+        await expect(
+          page.getByRole('complementary', { name: 'Explore public pianos' }),
+        ).toBeVisible()
+        await expectNoSeriousOrCriticalAxeViolations(
+          page,
+          `${testInfo.project.name} ${theme} list view`,
+        )
+      } else {
+        await expect(
+          page.getByRole('complementary', { name: 'Explore public pianos' }),
+        ).toBeVisible()
+        await expectNoSeriousOrCriticalAxeViolations(
+          page,
+          `${testInfo.project.name} ${theme}`,
+        )
+      }
+    })
+  }
+})
+
+test.describe('report submissions', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockPianoApi(page)
+  })
+
+  test('submits a new piano report successfully', async ({
+    page,
+    isMobile,
+  }) => {
+    let reportPayload: ReportPayload | undefined
+    await page.route(reportsApiUrl, async (route) => {
+      expect(route.request().method()).toBe('POST')
+      reportPayload = route.request().postDataJSON() as ReportPayload
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true, id: 'report:test-success' }),
+      })
+    })
+
+    await page.goto('/')
+    await page
+      .getByRole('button', { name: 'Add a public piano', exact: true })
+      .click()
+    const dialog = page.getByRole('dialog', { name: 'Add a public piano' })
+    await expect(dialog).toBeVisible()
+
+    await dialog.getByLabel('Name or venue').fill('Library atrium piano')
+    await dialog.getByLabel('City').fill('Busan')
+    await dialog.getByLabel('Country').fill('South Korea')
+    await dialog
+      .getByLabel('Details')
+      .fill('Second floor atrium near the west reading room.')
+    await dialog
+      .getByRole('button', { name: 'Submit for review' })
+      .click()
+
+    await expect(dialog).toBeHidden()
+    if (isMobile) {
+      await page
+        .getByRole('group', { name: 'Choose map or list view' })
+        .getByRole('button', { name: 'List', exact: true })
+        .click()
+    }
+    await expect(
+      page.getByText('Thank you. Your piano tip was saved for review.', {
+        exact: true,
+      }),
+    ).toBeVisible()
+    expect(reportPayload).toEqual({
+      kind: 'add_new',
+      name: 'Library atrium piano',
+      city: 'Busan',
+      country: 'South Korea',
+      note: 'Second floor atrium near the west reading room.',
+    })
+  })
+
+  test('keeps the report dialog open when submission fails', async ({
+    page,
+    isMobile,
+  }) => {
+    let reportPayload: ReportPayload | undefined
+    await page.route(reportsApiUrl, async (route) => {
+      expect(route.request().method()).toBe('POST')
+      reportPayload = route.request().postDataJSON() as ReportPayload
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'storage unavailable' }),
+      })
+    })
+
+    await page.goto('/')
+    const dialog = await openSelectedPianoReport(page, isMobile)
+    await dialog
+      .getByLabel('Details')
+      .fill('The bench is missing and the sustain pedal is stuck.')
+    const submit = dialog.getByRole('button', { name: 'Submit for review' })
+    await submit.click()
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('alert')).toHaveText(
+      'Report rejected with 500',
+    )
+    await expect(submit).toBeEnabled()
+    expect(reportPayload).toEqual({
+      pianoId: 'test:kr:seoul:city-hall',
+      kind: 'confirm_available',
+      name: 'Seoul City Hall piano',
+      city: 'Seoul',
+      country: 'South Korea',
+      note: 'The bench is missing and the sustain pedal is stuck.',
+    })
+  })
+})
+
+test.describe('api contract', () => {
+  test.beforeEach(async ({ isMobile }) => {
+    test.skip(isMobile === true, 'API contract is device-independent')
+  })
+
+  test('reports backend health', async ({ request }) => {
+    const response = await request.get(`${apiBaseUrl}/api/health`)
+
+    expect(response.status()).toBe(200)
+    expect(response.headers()['content-type']).toContain('application/json')
+    expect(await response.json()).toEqual({
+      ok: true,
+      service: 'piano-atlas-api',
+    })
+  })
+
+  test('rejects an invalid filter value', async ({ request }) => {
+    const response = await request.get(
+      `${apiBaseUrl}/api/pianos?access=private-only&limit=10`,
+    )
+
+    expect(response.status()).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'Invalid query parameters',
+    })
+  })
+
+  test('rejects a malformed bbox value', async ({ request }) => {
+    const response = await request.get(
+      `${apiBaseUrl}/api/pianos?bbox=west,south,east,north&limit=5`,
+    )
+
+    expect(response.status()).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'Invalid query parameters',
+    })
+  })
+
+  test('rejects invalid report payloads', async ({ request }) => {
+    const missingNewFields = await request.post(`${apiBaseUrl}/api/reports`, {
+      data: {
+        kind: 'add_new',
+        note: 'Enough detail to pass the length check.',
+      },
+    })
+    const missingPianoId = await request.post(`${apiBaseUrl}/api/reports`, {
+      data: {
+        kind: 'missing',
+        note: 'Enough detail to pass the length check.',
+      },
+    })
+
+    expect(missingNewFields.status()).toBe(400)
+    expect(await missingNewFields.json()).toEqual({ error: 'Invalid report' })
+    expect(missingPianoId.status()).toBe(400)
+    expect(await missingPianoId.json()).toEqual({ error: 'Invalid report' })
+  })
+})
 
 test.describe('desktop atlas', () => {
   test.beforeEach(async ({ page, isMobile }) => {
@@ -124,11 +429,85 @@ test.describe('desktop atlas', () => {
     ).toBeVisible()
   })
 
+  test('keeps rendering when browser storage is blocked', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException('Storage blocked', 'SecurityError')
+        },
+      })
+    })
+
+    await page.goto('/')
+
+    await expect(
+      page.getByRole('heading', {
+        level: 1,
+        name: /Find a piano\.\s*Play the city\./,
+      }),
+    ).toBeVisible()
+  })
+
+  test('restores focus after closing the report dialog with Escape', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    const opener = page.getByRole('button', {
+      name: 'Add a public piano',
+      exact: true,
+    })
+
+    await opener.focus()
+    await opener.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Add a public piano' })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    await expect(dialog).toBeHidden()
+    await expect(opener).toBeFocused()
+  })
+
+  test('clusters nearby markers at the world view', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(page.locator('.piano-cluster-marker')).not.toHaveCount(0)
+    await expect(page.locator('.piano-marker-shell')).not.toHaveCount(
+      apiPianos.length,
+    )
+  })
+
+  test('shows a useful list empty state', async ({ page }) => {
+    await page.goto('/')
+    await page.getByLabel('Search public pianos').fill('No piano here')
+
+    await expect(
+      pianoList(page).getByText('No pianos match these filters', {
+        exact: true,
+      }),
+    ).toBeVisible()
+  })
+
+  test('exposes source and confidence filters', async ({ page }) => {
+    await page.goto('/')
+    await page.getByText('More filters', { exact: true }).click()
+    await page.getByLabel('Source').selectOption('curated_seed')
+    await page.getByLabel('Confidence').selectOption('high')
+
+    await expect(page).toHaveURL(/source=curated_seed/)
+    await expect(page).toHaveURL(/confidence=high/)
+    await expect(
+      pianoList(page).getByRole('button', {
+        name: /St Pancras station piano/,
+      }),
+    ).toBeVisible()
+  })
+
   test('filters results and restores filters from the URL', async ({ page }) => {
     await page.goto('/')
 
     await page.getByLabel('Search public pianos').fill('Seoul')
-    await page.getByLabel('Access').selectOption('public')
+    await primaryFilterSelect(page, 'Access').selectOption('public')
     await page
       .getByRole('button', {
         name: 'Unverified',
@@ -142,7 +521,9 @@ test.describe('desktop atlas', () => {
       return Object.fromEntries(params.entries())
     }).toEqual({ q: 'Seoul', access: 'public', status: 'unknown' })
 
-    await expect(page.getByText('1 piano', { exact: true })).toBeVisible()
+    await expect(
+      explorerPanel(page).getByText('1 piano', { exact: true }),
+    ).toBeVisible()
     await expect(
       pianoList(page).getByRole('button', {
         name: /Seoul City Hall piano/,
@@ -157,8 +538,10 @@ test.describe('desktop atlas', () => {
     await page.reload()
 
     await expect(page.getByLabel('Search public pianos')).toHaveValue('Seoul')
-    await expect(page.getByLabel('Access')).toHaveValue('public')
-    await expect(page.getByText('1 piano', { exact: true })).toBeVisible()
+    await expect(primaryFilterSelect(page, 'Access')).toHaveValue('public')
+    await expect(
+      explorerPanel(page).getByText('1 piano', { exact: true }),
+    ).toBeVisible()
   })
 
   test('toggles and persists dark mode', async ({ page }) => {
@@ -245,8 +628,7 @@ test.describe('desktop atlas', () => {
     await expect(page.getByText('Nearest first', { exact: true })).toBeVisible()
     await expect(
       page.getByText(
-        'Seoul City Hall piano is the closest listed piano to you.',
-        { exact: true },
+        /Seoul City Hall piano is the closest listed piano/,
       ),
     ).toBeVisible()
     await expect(pianoList(page).getByRole('button').first()).toContainText(
@@ -274,7 +656,12 @@ test.describe('desktop atlas', () => {
         name: /St Pancras station piano/,
       }),
     ).toBeVisible()
-    await expect(page.getByText(/\d+ pianos?/, { exact: true })).toBeVisible()
+    await expect(
+      page
+        .getByRole('complementary', { name: 'Explore public pianos' })
+        .getByText(/\d+ pianos?/, { exact: true })
+        .first(),
+    ).toBeVisible()
   })
 })
 
